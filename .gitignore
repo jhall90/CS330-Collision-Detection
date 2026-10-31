@@ -1,0 +1,14 @@
+@"
+.vs/
+Debug/
+Release/
+x64/
+*.exe
+*.pdb
+*.dll
+*.obj
+*.ilk
+*.zip
+*.user
+Utilities/textures/
+"@ | Out-File -Encoding utf8 .gitignore
