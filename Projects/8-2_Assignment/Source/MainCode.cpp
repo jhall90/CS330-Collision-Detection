@@ -364,4 +364,19 @@ void processInput(GLFWwindow* window)
 		Circle B(0, 0, 02, 2, 0.05, r, g, b);
 		world.push_back(B);
 	}
+
+	// Benchmark keys: 1 = 100 circles, 2 = 1,000, 3 = 5,000 (once per press)
+	int benchKeys[3] = { GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3 };
+	int benchCounts[3] = { 100, 1000, 5000 };
+	for (int k = 0; k < 3; k++) {
+		bool down = glfwGetKey(window, benchKeys[k]) == GLFW_PRESS;
+		if (down && !benchKeyDown[k]) spawnBatch(benchCounts[k]);
+		benchKeyDown[k] = down;
+	}
+
+	// C clears all circles so each benchmark run starts fresh
+	bool cDown = glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS;
+	if (cDown && !clearKeyDown) world.clear();
+
+	clearKeyDown = cDown;
 }
