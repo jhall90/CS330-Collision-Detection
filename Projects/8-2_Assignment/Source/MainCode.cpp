@@ -116,9 +116,13 @@ public:
 		float halfW = brk->width / 2.0f;
 		float halfH = brk->height / 2.0f;
 
-		bool collisionX = x + radius > brk->x - halfW && x - radius < brk->x + halfW;
-		bool collisionY = y + radius > brk->y - halfH && y - radius < brk->y + halfH;
-		if (!(collisionX && collisionY)) return;
+		// Exact circle vs rectangle test (closest-point method).
+		// Clamp the circle's center to the brick to find the nearest point on it, then compare squared distances so no square root is needed.
+		float closestX = fmaxf(brk->x - halfW, fminf(x, brk->x + halfW));
+		float closestY = fmaxf(brk->y - halfH, fminf(y, brk->y + halfH));
+		float dx = x - closestX;
+		float dy = y - closestY;
+		if (dx * dx + dy * dy > radius * radius) return;
 
 		// The axis with the smaller overlap is the face the circle came through
 		float overlapX = (halfW + radius) - fabs(x - brk->x);
