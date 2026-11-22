@@ -13,6 +13,9 @@
   <ItemGroup>
     <ClCompile Include="Source\MainCode.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\UniformGrid.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>

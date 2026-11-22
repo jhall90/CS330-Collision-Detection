@@ -10,6 +10,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include "UniformGrid.h"
 
 using namespace std;
 
@@ -205,6 +206,13 @@ public:
 vector<Circle> world;
 bool spacePressedLastFrame = false;
 
+// Uniform grid (capstone enhancement)
+const float CELL_SIZE = 0.1f;   // two circle radii
+UniformGrid brickGrid;
+vector<int> nearbyBricks;       // reused each query to avoid reallocating
+bool useGrid = false;
+bool gridKeyDown = false;
+
 vector<Brick> bricks;
 bool resetKeyDown = false;
 
@@ -246,6 +254,14 @@ void buildBricks()
 
 			bricks.push_back(Brick(type, x, y, brickWidth, brickHeight, red, green, blue));
 		}
+	}
+
+	// Rebuild the grid: each brick goes into every cell it overlaps
+	brickGrid.init(-worldHalfWidth, -1.0f, worldHalfWidth, 1.0f, CELL_SIZE);
+	for (int b = 0; b < bricks.size(); b++) {
+		Brick& br = bricks[b];
+		brickGrid.insert(b, br.x - br.width / 2, br.y - br.height / 2,
+			br.x + br.width / 2, br.y + br.height / 2);
 	}
 }
 
@@ -312,10 +328,31 @@ int main(void) {
 		// Collision pass, timed separately from drawing
 		checksThisFrame = 0;
 		auto collisionStart = chrono::high_resolution_clock::now();
-		for (int i = 0; i < world.size(); i++) {
-			for (int j = 0; j < bricks.size(); j++) {
-				world[i].CheckCollision(&bricks[j]);
-				checksThisFrame++;
+		if (useGrid) {
+			// Grid: check only the bricks in the cells this circle overlaps
+			for (int i = 0; i < world.size(); i++) {
+				Circle& c = world[i];
+				brickGrid.query(c.x - c.radius, c.y - c.radius, c.x + c.radius, c.y + c.radius, nearbyBricks);
+				for (int b : nearbyBricks) {
+					Brick& br = bricks[b];
+					bool wasOn = (br.onoff == ON);
+					c.CheckCollision(&br);
+					checksThisFrame++;
+					if (wasOn && br.onoff == OFF) {
+						// Destroyed: take it out of the grid so no circle checks it again
+						brickGrid.remove(b, br.x - br.width / 2, br.y - br.height / 2,
+							br.x + br.width / 2, br.y + br.height / 2);
+					}
+				}
+			}
+		}
+		else {
+			// Brute force: every circle checks every brick
+			for (int i = 0; i < world.size(); i++) {
+				for (int j = 0; j < bricks.size(); j++) {
+					world[i].CheckCollision(&bricks[j]);
+					checksThisFrame++;
+				}
 			}
 		}
 		auto collisionEnd = chrono::high_resolution_clock::now();
@@ -331,7 +368,7 @@ int main(void) {
 		totalCollisionMs += chrono::duration<double, milli>(collisionEnd - collisionStart).count();
 		framesMeasured++;
 		if (framesMeasured == REPORT_EVERY) {
-			cout << "Brute force | circles: " << world.size()
+			cout << (useGrid ? "Uniform grid" : "Brute force") << " | circles: " << world.size()
 				<< " | avg checks/frame: " << totalChecks / framesMeasured
 				<< " | avg collision time: " << totalCollisionMs / framesMeasured << " ms" << endl;
 			totalChecks = 0;
@@ -353,27 +390,11 @@ int main(void) {
 	exit(EXIT_SUCCESS);
 }
 
-
 void processInput(GLFWwindow* window)
 {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
-	// I wanted to have 1 cicrlce not many thrown in for now
-	//if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-	//	if (!spacePressedLastFrame) {
-	//		// only runs once per press
-	//		double r = (double)rand() / RAND_MAX;
-	//		double g = (double)rand() / RAND_MAX;
-	//		double b = (double)rand() / RAND_MAX;
-	//		Circle B(0, -0.8, 0.02, 2, 0.05, r, g, b);
-	//		world.push_back(B);
-	//	}
-	//	spacePressedLastFrame = true;  
-	//}
-	//else {
-	//	spacePressedLastFrame = false; 
-	//}
 	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
 	{
 		double r, g, b;
@@ -398,12 +419,18 @@ void processInput(GLFWwindow* window)
 	// C clears all circles so each benchmark run starts fresh
 	bool cDown = glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS;
 	if (cDown && !clearKeyDown) world.clear();
-
 	clearKeyDown = cDown;
-
 
 	// R rebuilds the bricks with a new random layout
 	bool rDown = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
 	if (rDown && !resetKeyDown) buildBricks();
 	resetKeyDown = rDown;
+
+	// G toggles between brute force and the uniform grid
+	bool gDown = glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS;
+	if (gDown && !gridKeyDown) {
+		useGrid = !useGrid;
+		cout << "Collision mode: " << (useGrid ? "uniform grid" : "brute force") << endl;
+	}
+	gridKeyDown = gDown;
 }
