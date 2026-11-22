@@ -151,11 +151,6 @@ public:
 		if (brk->brick_type == DESTRUCTABLE) brk->onoff = OFF;
 	}
 
-	int GetRandomDirection()
-	{
-		return (rand() % 8) + 1;
-	}
-
 	// Mirror bounce off a window wall, using the same rule as bricks, so a circle never keeps pushing into a wall
 	int GetDirectionAwayFrom(int wall)
 	{
@@ -206,6 +201,50 @@ public:
 vector<Circle> world;
 bool spacePressedLastFrame = false;
 
+vector<Brick> bricks;
+bool resetKeyDown = false;
+
+// Builds (or rebuilds) the rows of bricks with new random colors and destructible picks
+void buildBricks()
+{
+	bricks.clear();
+
+	float startX = -worldHalfWidth;   // starting left side position
+	float startY = 0.8f;
+	int brickCount = 8;
+	int rowCount = 4;
+	float rowSpacing = 0.35f;
+	float brickWidth = (2.0f * worldHalfWidth) / brickCount;
+	float brickHeight = (2.0f / brickCount) / 2.5f;
+
+	for (int j = 0; j < rowCount; j++) {
+
+		// randomly decide which 2 bricks in the row will be destructible
+		vector<int> destructibleIndices;
+		while (destructibleIndices.size() < 2) {
+			int randIndex = rand() % brickCount;
+			if (find(destructibleIndices.begin(), destructibleIndices.end(), randIndex) == destructibleIndices.end()) {
+				destructibleIndices.push_back(randIndex);
+			}
+		}
+
+		for (int i = 0; i < brickCount; i++) {
+			float red = (float)rand() / RAND_MAX;
+			float green = (float)rand() / RAND_MAX;
+			float blue = (float)rand() / RAND_MAX;
+
+			BRICKTYPE type = (find(destructibleIndices.begin(), destructibleIndices.end(), i) != destructibleIndices.end())
+				? DESTRUCTABLE : REFLECTIVE;
+
+			// no horizontal gap between bricks
+			float x = startX + (i * brickWidth) + (brickWidth / 2.0f);
+			float y = startY - (j * rowSpacing);
+
+			bricks.push_back(Brick(type, x, y, brickWidth, brickHeight, red, green, blue));
+		}
+	}
+}
+
 // Benchmark instrumentation 
 long long checksThisFrame = 0;
 long long totalChecks = 0;
@@ -255,55 +294,7 @@ int main(void) {
 	glOrtho(-worldHalfWidth, worldHalfWidth, -1.0, 1.0, -1.0, 1.0);
 	glMatrixMode(GL_MODELVIEW);
 
-	/*Brick brick(REFLECTIVE, 0.5, -0.33, 0.2, 1, 1, 0);
-	Brick brick2(DESTRUCTABLE, -0.5, 0.33, 0.2, 0, 1, 0);
-	Brick brick3(DESTRUCTABLE, -0.5, -0.33, 0.2, 0, 1, 1);
-	Brick brick4(REFLECTIVE, 0, 0, 0.2, 1, 0.5, 0.5);*/
-
-	// Create a dynamic amount of rows of randomly colored bricks
-	// no gap between bricks, but a little height gap so the ball can bounce until it hits another destructive
-	
-	vector<Brick> bricks;
-	float startX = -worldHalfWidth;   // starting left side position
-	float startY = 0.8f;    
-	int brickCount = 8;
-	int rowCount = 4;
-	float rowSpacing = 0.35f;
-	float brickWidth = (2.0f * worldHalfWidth) / brickCount;
-	float brickHeight = (2.0f / brickCount) / 2.5f;  
-	//float brickWidth = 0.2f;
-	//float totalWidth = brickCount * brickWidth;
-
-
-	// build the rows
-	for (int j = 0; j < rowCount; j++) {
-
-		// randomly decide which 2 bricks in the row will be destructible
-		vector<int> destructibleIndices;
-		while (destructibleIndices.size() < 2) {
-			int randIndex = rand() % brickCount;
-			if (find(destructibleIndices.begin(), destructibleIndices.end(), randIndex) == destructibleIndices.end()) {
-				destructibleIndices.push_back(randIndex);
-			}
-		}
-
-		for (int i = 0; i < brickCount; i++) {
-			float red = (float)rand() / RAND_MAX;
-			float green = (float)rand() / RAND_MAX;
-			float blue = (float)rand() / RAND_MAX;
-
-			// 2 destructible bricks per row
-			BRICKTYPE type = (find(destructibleIndices.begin(), destructibleIndices.end(), i) != destructibleIndices.end())
-				? DESTRUCTABLE : REFLECTIVE;
-
-			// no horizontal gap between bricks
-			/*float x = startX + offsetX + (i * brickWidth) + (brickWidth / 2.0f);*/
-			float x = startX + (i * brickWidth) + (brickWidth / 2.0f);
-			float y = startY - (j * rowSpacing);
-
-			bricks.push_back(Brick(type, x, y, brickWidth, brickHeight, red, green, blue));
-		}
-	}
+	buildBricks();
 
 	while (!glfwWindowShouldClose(window)) {
 		//Setup View
@@ -405,4 +396,10 @@ void processInput(GLFWwindow* window)
 	if (cDown && !clearKeyDown) world.clear();
 
 	clearKeyDown = cDown;
+
+
+	// R rebuilds the bricks with a new random layout
+	bool rDown = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
+	if (rDown && !resetKeyDown) buildBricks();
+	resetKeyDown = rDown;
 }
