@@ -9,10 +9,14 @@
 #include <time.h>
 #include <chrono>
 #include <algorithm>
+#include <cmath>
 
 using namespace std;
 
 const float DEG2RAD = 3.14159 / 180;
+
+// Half the world's width in world units. Set from the window's aspect ratio in main() so circles draw round instead of stretched.
+float worldHalfWidth = 1.0f;
 
 void processInput(GLFWwindow* window);
 
@@ -63,7 +67,7 @@ public:
 	float x;
 	float y;
 	float speed = 0.01;
-	int direction; // 1=up 2=right 3=down 4=left 5 = up right   6 = up left  7 = down right  8= down left
+	int direction; // 1=down 2=right 3=up 4=left 5=down-right 6=down-left 7=up-right 8=up-left 
 
 	Circle(double xx, double yy, double rr, int dir, float rad, float r, float g, float b)
 	{
@@ -77,47 +81,74 @@ public:
 		direction = dir;
 	}
 
+	// Direction helpers. Diagonals move equally on both axes, so they are 45 degrees.
+	bool MovingYUp() { return direction == 3 || direction == 7 || direction == 8; }
+	bool MovingYDown() { return direction == 1 || direction == 5 || direction == 6; }
+	bool MovingXRight() { return direction == 2 || direction == 5 || direction == 7; }
+	bool MovingXLeft() { return direction == 4 || direction == 6 || direction == 8; }
+
+	// Mirror bounce off a horizontal surface (top or bottom): flips the vertical part only
+	int FlipVertical(int d)
+	{
+		switch (d) {
+		case 1: return 3; case 3: return 1;
+		case 5: return 7; case 7: return 5;
+		case 6: return 8; case 8: return 6;
+		}
+		return d;
+	}
+
+	// Mirror bounce off a vertical surface (left or right): flips the horizontal part only
+	int FlipHorizontal(int d)
+	{
+		switch (d) {
+		case 2: return 4; case 4: return 2;
+		case 5: return 6; case 6: return 5;
+		case 7: return 8; case 8: return 7;
+		}
+		return d;
+	}
+
 	void CheckCollision(Brick* brk)
 	{
-		/*if (brk->brick_type == REFLECTIVE)
-		{
-			if ((x > brk->x - brk->width && x <= brk->x + brk->width) && (y > brk->y - brk->width && y <= brk->y + brk->width))
-			{
-				direction = GetRandomDirection();
-				x = x + 0.03;
-				y = y + 0.04;
-			}
-		}
-		else if (brk->brick_type == DESTRUCTABLE)
-		{
-			if ((x > brk->x - brk->width && x <= brk->x + brk->width) && (y > brk->y - brk->width && y <= brk->y + brk->width))
-			{
-				brk->onoff = OFF;
-			}
-		}*/
-		if (brk->onoff == OFF) return; // skip inactive bricks
+		if (brk->onoff == OFF) return; // skip destroyed bricks
 
 		float halfW = brk->width / 2.0f;
 		float halfH = brk->height / 2.0f;
 
 		bool collisionX = x + radius > brk->x - halfW && x - radius < brk->x + halfW;
 		bool collisionY = y + radius > brk->y - halfH && y - radius < brk->y + halfH;
+		if (!(collisionX && collisionY)) return;
 
-		if (collisionX && collisionY)
-		{
-			if (brk->brick_type == REFLECTIVE)
-			{
-				// Simple bounce: reverse direction vertically
-				direction = (direction == 3) ? 1 : (direction == 1 ? 3 : GetRandomDirection());
-				y -= 0.02f; // nudge slightly to avoid getting stuck
+		// The axis with the smaller overlap is the face the circle came through
+		float overlapX = (halfW + radius) - fabs(x - brk->x);
+		float overlapY = (halfH + radius) - fabs(y - brk->y);
+
+		if (overlapY < overlapX) {
+			// Hit the top or bottom face: mirror vertically and move outside the brick
+			if (y < brk->y) {
+				if (MovingYUp()) direction = FlipVertical(direction);
+				y = brk->y - halfH - radius;
 			}
-			else if (brk->brick_type == DESTRUCTABLE)
-			{
-				brk->onoff = OFF;
-				// reverse direction slightly when destroying a brick
-				direction = (direction == 3) ? 1 : (direction == 1 ? 3 : GetRandomDirection());
+			else {
+				if (MovingYDown()) direction = FlipVertical(direction);
+				y = brk->y + halfH + radius;
 			}
 		}
+		else {
+			// Hit the left or right face: mirror horizontally and move outside the brick
+			if (x < brk->x) {
+				if (MovingXRight()) direction = FlipHorizontal(direction);
+				x = brk->x - halfW - radius;
+			}
+			else {
+				if (MovingXLeft()) direction = FlipHorizontal(direction);
+				x = brk->x + halfW + radius;
+			}
+		}
+
+		// Both brick types reflect; destructible bricks also disappear
+		if (brk->brick_type == DESTRUCTABLE) brk->onoff = OFF;
 	}
 
 	int GetRandomDirection()
@@ -125,52 +156,37 @@ public:
 		return (rand() % 8) + 1;
 	}
 
+	// Mirror bounce off a window wall, using the same rule as bricks, so a circle never keeps pushing into a wall
+	int GetDirectionAwayFrom(int wall)
+	{
+		// wall: 0 = bottom, 1 = right, 2 = top, 3 = left
+		return (wall == 0 || wall == 2) ? FlipVertical(direction) : FlipHorizontal(direction);
+	}
+
 	void MoveOneStep()
 	{
-		if (direction == 1 || direction == 5 || direction == 6)  // up
+		if (direction == 1 || direction == 5 || direction == 6)  // y decreasing (down on screen)
 		{
-			if (y > -1 + radius)
-			{
-				y -= speed;
-			}
-			else
-			{
-				direction = GetRandomDirection();
-			}
+			if (y > -1 + radius) y -= speed;
+			else direction = GetDirectionAwayFrom(0);
 		}
 
-		if (direction == 2 || direction == 5 || direction == 7)  // right
+		if (direction == 2 || direction == 5 || direction == 7)  // x increasing (right)
 		{
-			if (x < 1 - radius)
-			{
-				x += speed;
-			}
-			else
-			{
-				direction = GetRandomDirection();
-			}
+			if (x < worldHalfWidth - radius) x += speed;
+			else direction = GetDirectionAwayFrom(1);
 		}
 
-		if (direction == 3 || direction == 7 || direction == 8)  // down
+		if (direction == 3 || direction == 7 || direction == 8)  // y increasing (up on screen)
 		{
-			if (y < 1 - radius) {
-				y += speed;
-			}
-			else
-			{
-				direction = GetRandomDirection();
-			}
+			if (y < 1 - radius) y += speed;
+			else direction = GetDirectionAwayFrom(2);
 		}
 
-		if (direction == 4 || direction == 6 || direction == 8)  // left
+		if (direction == 4 || direction == 6 || direction == 8)  // x decreasing (left)
 		{
-			if (x > -1 + radius) {
-				x -= speed;
-			}
-			else
-			{
-				direction = GetRandomDirection();
-			}
+			if (x > -worldHalfWidth + radius) x -= speed;
+			else direction = GetDirectionAwayFrom(3);
 		}
 	}
 
@@ -203,8 +219,8 @@ bool clearKeyDown = false;
 void spawnBatch(int count)
 {
 	for (int i = 0; i < count; i++) {
-		float x = ((float)rand() / RAND_MAX) * 1.8f - 0.9f;
-		float y = ((float)rand() / RAND_MAX) * 1.8f - 0.9f;
+		float x = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * (worldHalfWidth - 0.1f);
+		float y = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.9f;
 		int dir = (rand() % 8) + 1;
 		float r = (float)rand() / RAND_MAX;
 		float g = (float)rand() / RAND_MAX;
@@ -221,6 +237,7 @@ int main(void) {
 	}
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);  // world size is set once from the window
 	GLFWwindow* window = glfwCreateWindow(1200, 900, "8-2 Assignment - Josh Hall", NULL, NULL);
 	if (!window) {
 		glfwTerminate();
@@ -228,6 +245,15 @@ int main(void) {
 	}
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(1);
+
+	// Original computed an aspect ratio and never used it, so the 1200x900 window stretched circles into ovals. Widen the world to match.
+	int fbWidth, fbHeight;
+	glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+	worldHalfWidth = fbWidth / (float)fbHeight;
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(-worldHalfWidth, worldHalfWidth, -1.0, 1.0, -1.0, 1.0);
+	glMatrixMode(GL_MODELVIEW);
 
 	/*Brick brick(REFLECTIVE, 0.5, -0.33, 0.2, 1, 1, 0);
 	Brick brick2(DESTRUCTABLE, -0.5, 0.33, 0.2, 0, 1, 0);
@@ -238,13 +264,13 @@ int main(void) {
 	// no gap between bricks, but a little height gap so the ball can bounce until it hits another destructive
 	
 	vector<Brick> bricks;
-	float startX = -1.0f;   // starting left side position
+	float startX = -worldHalfWidth;   // starting left side position
 	float startY = 0.8f;    
 	int brickCount = 8;
 	int rowCount = 4;
 	float rowSpacing = 0.35f;
-	float brickWidth = 2.0f / brickCount;
-	float brickHeight = brickWidth / 2.5f;
+	float brickWidth = (2.0f * worldHalfWidth) / brickCount;
+	float brickHeight = (2.0f / brickCount) / 2.5f;  
 	//float brickWidth = 0.2f;
 	//float totalWidth = brickCount * brickWidth;
 
@@ -281,10 +307,8 @@ int main(void) {
 
 	while (!glfwWindowShouldClose(window)) {
 		//Setup View
-		float ratio;
 		int width, height;
 		glfwGetFramebufferSize(window, &width, &height);
-		ratio = width / (float)height;
 		glViewport(0, 0, width, height);
 		glClear(GL_COLOR_BUFFER_BIT);
 
@@ -358,10 +382,12 @@ void processInput(GLFWwindow* window)
 	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
 	{
 		double r, g, b;
-		r = rand() / 10000;
-		g = rand() / 10000;
-		b = rand() / 10000;
-		Circle B(0, 0, 02, 2, 0.05, r, g, b);
+		r = (double)rand() / RAND_MAX;
+		g = (double)rand() / RAND_MAX;
+		b = (double)rand() / RAND_MAX;
+		// Launch from the bottom center at a random 45 degree angle toward the bricks
+		int launchDir = (rand() % 2 == 0) ? 7 : 8;  // up-right or up-left
+		Circle B(0, -0.8, 0.05, launchDir, 0.05, r, g, b);
 		world.push_back(B);
 	}
 
