@@ -7,6 +7,8 @@
 #include <vector>
 #include <windows.h>
 #include <time.h>
+#include <chrono>
+#include <algorithm>
 
 using namespace std;
 
@@ -188,6 +190,29 @@ public:
 vector<Circle> world;
 bool spacePressedLastFrame = false;
 
+// Benchmark instrumentation 
+long long checksThisFrame = 0;
+long long totalChecks = 0;
+double totalCollisionMs = 0.0;
+int framesMeasured = 0;
+const int REPORT_EVERY = 120;
+bool benchKeyDown[3] = { false, false, false };
+bool clearKeyDown = false;
+
+// Spawns a batch of circles at random positions for benchmarking
+void spawnBatch(int count)
+{
+	for (int i = 0; i < count; i++) {
+		float x = ((float)rand() / RAND_MAX) * 1.8f - 0.9f;
+		float y = ((float)rand() / RAND_MAX) * 1.8f - 0.9f;
+		int dir = (rand() % 8) + 1;
+		float r = (float)rand() / RAND_MAX;
+		float g = (float)rand() / RAND_MAX;
+		float b = (float)rand() / RAND_MAX;
+		world.push_back(Circle(x, y, 0.05, dir, 0.05f, r, g, b));
+	}
+}
+
 int main(void) {
 	srand(time(NULL));
 
@@ -265,38 +290,40 @@ int main(void) {
 
 		processInput(window);
 
-		// Movement and collisions with vector Bricks
+		// Collision pass, timed separately from drawing
+		checksThisFrame = 0;
+		auto collisionStart = chrono::high_resolution_clock::now();
 		for (int i = 0; i < world.size(); i++) {
-			// Check collisions with all bricks in the vector
 			for (int j = 0; j < bricks.size(); j++) {
 				world[i].CheckCollision(&bricks[j]);
+				checksThisFrame++;
 			}
+		}
+		auto collisionEnd = chrono::high_resolution_clock::now();
 
+		// Movement and drawing pass
+		for (int i = 0; i < world.size(); i++) {
 			world[i].MoveOneStep();
 			world[i].DrawCircle();
+		}
+
+		// Print averages to the console every REPORT_EVERY frames
+		totalChecks += checksThisFrame;
+		totalCollisionMs += chrono::duration<double, milli>(collisionEnd - collisionStart).count();
+		framesMeasured++;
+		if (framesMeasured == REPORT_EVERY) {
+			cout << "Brute force | circles: " << world.size()
+				<< " | avg checks/frame: " << totalChecks / framesMeasured
+				<< " | avg collision time: " << totalCollisionMs / framesMeasured << " ms" << endl;
+			totalChecks = 0;
+			totalCollisionMs = 0.0;
+			framesMeasured = 0;
 		}
 
 		// Draw all bricks in the vector
 		for (int j = 0; j < bricks.size(); j++) {
 			bricks[j].drawBrick();
 		}
-
-		////Movement
-		//for (int i = 0; i < world.size(); i++)
-		//{
-		//	world[i].CheckCollision(&brick);
-		//	world[i].CheckCollision(&brick2);
-		//	world[i].CheckCollision(&brick3);
-		//	world[i].CheckCollision(&brick4);
-		//	world[i].MoveOneStep();
-		//	world[i].DrawCircle();
-
-		//}
-
-		//brick.drawBrick();
-		//brick2.drawBrick();
-		//brick3.drawBrick();
-		//brick4.drawBrick();
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
